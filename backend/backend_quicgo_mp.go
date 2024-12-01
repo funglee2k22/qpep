@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	QUICGO_MP_BACKEND     = "quic-go-mp"
+	QUICGO_MP_BACKEND     = "mp-quic-go"
 	QUICGO_MP_ALPN        = "qpep_mp"
 	QUICGO_MP_DEFAULT_CCA = "reno"
 )
