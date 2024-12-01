@@ -17,8 +17,7 @@ import (
 	stderr "github.com/Project-Faster/qpep/shared/errors"
 	"github.com/Project-Faster/qpep/shared/logger"
 	"github.com/Project-Faster/qpep/workers/gateway"
-	"github.com/Project-Faster/quic-go"
-	"github.com/Project-Faster/quic-go/logging"
+	"github.com/project-faster/mp-quic-go"
 	"io/ioutil"
 	"net"
 	"strings"
@@ -26,28 +25,28 @@ import (
 )
 
 const (
-	QUICGO_BACKEND     = "quic-go"
-	QUICGO_ALPN        = "qpep"
-	QUICGO_DEFAULT_CCA = "reno"
+	QUICGO_MP_BACKEND     = "quic-go-mp"
+	QUICGO_MP_ALPN        = "qpep_mp"
+	QUICGO_MP_DEFAULT_CCA = "reno"
 )
 
-var quicGoBackendVar QuicBackend = &quicGoBackend{}
+var quicGoMpBackendVar QuicBackend = &quicGoMpBackend{}
 
 func init() {
-	Register(QUICGO_BACKEND, quicGoBackendVar)
+	Register(QUICGO_MP_BACKEND, quicGoMpBackendVar)
 }
 
-type quicGoBackend struct {
+type quicGoMpBackend struct {
 	connections []QuicBackendConnection
 }
 
-func (q *quicGoBackend) Dial(ctx context.Context, remoteAddress string, port int, clientCertPath string, ccAlgorithm string, ccSlowstartAlgo string, traceOn bool) (QuicBackendConnection, error) {
-	quicConfig := quicGoGetConfiguration(traceOn)
+func (q *quicGoMpBackend) Dial(ctx context.Context, remoteAddress string, port int, clientCertPath string, ccAlgorithm string, ccSlowstartAlgo string, traceOn bool) (QuicBackendConnection, error) {
+	quicConfig := quicGoMpGetConfiguration(traceOn)
 
 	var err error
-	var session quic.Connection
+	var session quic.Session
 
-	tlsConf := loadTLSConfig(clientCertPath, "")
+	tlsConf := mpLoadTLSConfig(clientCertPath, "")
 	gatewayPath := fmt.Sprintf("%s:%d", remoteAddress, port)
 
 	session, err = quic.DialAddr(gatewayPath, tlsConf, quicConfig)
@@ -56,7 +55,7 @@ func (q *quicGoBackend) Dial(ctx context.Context, remoteAddress string, port int
 		return nil, stderr.ErrFailedGatewayConnect
 	}
 
-	sessionAdapter := &quicGoConnectionAdapter{
+	sessionAdapter := &quicGoMpConnectionAdapter{
 		context:    ctx,
 		connection: session,
 	}
@@ -65,10 +64,10 @@ func (q *quicGoBackend) Dial(ctx context.Context, remoteAddress string, port int
 	return sessionAdapter, nil
 }
 
-func (q *quicGoBackend) Listen(ctx context.Context, address string, port int, serverCertPath string, serverKeyPath string, ccAlgorithm string, ccSlowstartAlgo string, traceOn bool) (QuicBackendConnection, error) {
-	quicConfig := quicGoGetConfiguration(traceOn)
+func (q *quicGoMpBackend) Listen(ctx context.Context, address string, port int, serverCertPath string, serverKeyPath string, ccAlgorithm string, ccSlowstartAlgo string, traceOn bool) (QuicBackendConnection, error) {
+	quicConfig := quicGoMpGetConfiguration(traceOn)
 
-	tlsConf := loadTLSConfig(serverCertPath, serverKeyPath)
+	tlsConf := mpLoadTLSConfig(serverCertPath, serverKeyPath)
 
 	conn, err := quic.ListenAddr(fmt.Sprintf("%s:%d", address, port), tlsConf, quicConfig)
 	if err != nil {
@@ -76,13 +75,13 @@ func (q *quicGoBackend) Listen(ctx context.Context, address string, port int, se
 		return nil, stderr.ErrFailedGatewayConnect
 	}
 
-	return &quicGoConnectionAdapter{
+	return &quicGoMpConnectionAdapter{
 		context:  ctx,
 		listener: conn,
 	}, err
 }
 
-func (q *quicGoBackend) Close() error {
+func (q *quicGoMpBackend) Close() error {
 	for _, conn := range q.connections {
 		_ = conn.Close(0, "")
 	}
@@ -91,35 +90,30 @@ func (q *quicGoBackend) Close() error {
 	return nil
 }
 
-func quicGoGetConfiguration(traceOn bool) *quic.Config {
+func quicGoMpGetConfiguration(traceOn bool) *quic.Config {
 	cfg := &quic.Config{
-		MaxIncomingStreams:      1024,
-		DisablePathMTUDiscovery: false,
-		MaxIdleTimeout:          2 * time.Second,
+		MaxReceiveConnectionFlowControlWindow: 10 * 1024 * 1024,
+		MaxReceiveStreamFlowControlWindow:     10 * 1024 * 1024,
 
-		InitialConnectionReceiveWindow: 10 * 1024 * 1024,
+		IdleTimeout:      2 * time.Second,
+		HandshakeTimeout: gateway.GetScaledTimeout(10, time.Second),
+		KeepAlive:        false,
 
-		HandshakeIdleTimeout: gateway.GetScaledTimeout(10, time.Second),
-		KeepAlivePeriod:      0,
-
-		EnableDatagrams: false,
-	}
-	if traceOn {
-		cfg.Tracer = &qpepQuicTracer{}
+		CreatePaths: true,
 	}
 
 	return cfg
 }
 
-type quicGoConnectionAdapter struct {
+type quicGoMpConnectionAdapter struct {
 	context    context.Context
 	listener   quic.Listener
-	connection quic.Connection
+	connection quic.Session
 
 	streams []quic.Stream
 }
 
-func (c *quicGoConnectionAdapter) LocalAddr() net.Addr {
+func (c *quicGoMpConnectionAdapter) LocalAddr() net.Addr {
 	if c.connection != nil {
 		return c.connection.LocalAddr()
 	}
@@ -129,7 +123,7 @@ func (c *quicGoConnectionAdapter) LocalAddr() net.Addr {
 	panic(stderr.ErrInvalidBackendOperation)
 }
 
-func (c *quicGoConnectionAdapter) RemoteAddr() net.Addr {
+func (c *quicGoMpConnectionAdapter) RemoteAddr() net.Addr {
 	if c.connection != nil {
 		return c.connection.RemoteAddr()
 	}
@@ -139,13 +133,13 @@ func (c *quicGoConnectionAdapter) RemoteAddr() net.Addr {
 	panic(stderr.ErrInvalidBackendOperation)
 }
 
-func (c *quicGoConnectionAdapter) AcceptConnection(ctx context.Context) (QuicBackendConnection, error) {
+func (c *quicGoMpConnectionAdapter) AcceptConnection(ctx context.Context) (QuicBackendConnection, error) {
 	if c.listener != nil {
-		conn, err := c.listener.Accept(ctx)
+		conn, err := c.listener.Accept()
 		if err != nil {
 			return nil, err
 		}
-		cNew := &quicGoConnectionAdapter{
+		cNew := &quicGoMpConnectionAdapter{
 			context:    ctx,
 			listener:   c.listener,
 			connection: conn,
@@ -156,42 +150,42 @@ func (c *quicGoConnectionAdapter) AcceptConnection(ctx context.Context) (QuicBac
 	panic(stderr.ErrInvalidBackendOperation)
 }
 
-func (c *quicGoConnectionAdapter) AcceptStream(ctx context.Context) (QuicBackendStream, error) {
+func (c *quicGoMpConnectionAdapter) AcceptStream(ctx context.Context) (QuicBackendStream, error) {
 	if c.connection != nil {
-		stream, err := c.connection.AcceptStream(ctx)
+		stream, err := c.connection.AcceptStream()
 		if stream != nil {
 			c.streams = append(c.streams, stream)
 		}
-		return &quicGoStreamAdapter{
+		return &quicGoMpStreamAdapter{
 			Stream: stream,
 		}, err
 	}
 	panic(stderr.ErrInvalidBackendOperation)
 }
 
-func (c *quicGoConnectionAdapter) OpenStream(ctx context.Context) (QuicBackendStream, error) {
+func (c *quicGoMpConnectionAdapter) OpenStream(ctx context.Context) (QuicBackendStream, error) {
 	if c.connection != nil {
-		stream, err := c.connection.OpenStreamSync(ctx)
-		return &quicGoStreamAdapter{
+		stream, err := c.connection.OpenStreamSync()
+		return &quicGoMpStreamAdapter{
 			Stream: stream,
 		}, err
 	}
 	panic(stderr.ErrInvalidBackendOperation)
 }
 
-func (c *quicGoConnectionAdapter) Close(code int, message string) error {
+func (c *quicGoMpConnectionAdapter) Close(code int, message string) error {
 	defer func() {
 		c.connection = nil
 		c.listener = nil
 		c.streams = nil
 	}()
 	if c.connection != nil {
+		err := errors.New(fmt.Sprintf("code:%d,message:%s", code, message))
 		for _, st := range c.streams {
-			st.CancelRead(quic.StreamErrorCode(0))
-			st.CancelWrite(quic.StreamErrorCode(0))
+			st.Reset(err)
 			_ = st.Close()
 		}
-		return c.connection.CloseWithError(quic.ApplicationErrorCode(code), message)
+		return c.connection.Close(err)
 	}
 	if c.listener != nil {
 		return c.listener.Close()
@@ -199,13 +193,13 @@ func (c *quicGoConnectionAdapter) Close(code int, message string) error {
 	return nil
 }
 
-func (c *quicGoConnectionAdapter) IsClosed() bool {
+func (c *quicGoMpConnectionAdapter) IsClosed() bool {
 	return c.connection == nil && c.listener == nil
 }
 
-var _ QuicBackendConnection = &quicGoConnectionAdapter{}
+var _ QuicBackendConnection = &quicGoMpConnectionAdapter{}
 
-type quicGoStreamAdapter struct {
+type quicGoMpStreamAdapter struct {
 	quic.Stream
 
 	id *uint64
@@ -214,55 +208,47 @@ type quicGoStreamAdapter struct {
 	closedWrite bool
 }
 
-func (stream *quicGoStreamAdapter) AbortRead(code uint64) {
-	stream.CancelRead(quic.StreamErrorCode(code))
+func (stream *quicGoMpStreamAdapter) AbortRead(code uint64) {
+	err := errors.New(fmt.Sprintf("code:%d", code))
+	stream.Reset(err)
 	stream.closedRead = true
 }
 
-func (stream *quicGoStreamAdapter) AbortWrite(code uint64) {
-	stream.CancelWrite(quic.StreamErrorCode(code))
+func (stream *quicGoMpStreamAdapter) AbortWrite(code uint64) {
+	err := errors.New(fmt.Sprintf("code:%d", code))
+	stream.Reset(err)
 	stream.closedWrite = true
 }
 
-func (stream *quicGoStreamAdapter) Sync() bool {
+func (stream *quicGoMpStreamAdapter) Sync() bool {
 	return stream.IsClosed()
 }
 
-func (stream *quicGoStreamAdapter) ID() uint64 {
+func (stream *quicGoMpStreamAdapter) ID() uint64 {
 	if stream.id != nil {
 		return *stream.id
 	}
-	var sendStream quic.SendStream = stream
-	if sendStream != nil {
-		stream.id = new(uint64)
-		*stream.id = uint64(sendStream.StreamID())
-		return *stream.id
-	}
-	var recvStream quic.ReceiveStream = stream
-	if recvStream != nil {
-		stream.id = new(uint64)
-		*stream.id = uint64(recvStream.StreamID())
-		return *stream.id
-	}
-	return 0
+	stream.id = new(uint64)
+	*stream.id = uint64(stream.StreamID())
+	return *stream.id
 }
 
-func (stream *quicGoStreamAdapter) IsClosed() bool {
+func (stream *quicGoMpStreamAdapter) IsClosed() bool {
 	return false // stream.closedRead || stream.closedWrite
 }
 
-func (stream *quicGoStreamAdapter) Close() error {
+func (stream *quicGoMpStreamAdapter) Close() error {
 	ctx := stream.Stream.Context()
 	<-ctx.Done()
 
 	return stream.Stream.Close()
 }
 
-var _ QuicBackendStream = &quicGoStreamAdapter{}
+var _ QuicBackendStream = &quicGoMpStreamAdapter{}
 
 // --- Certificate support --- //
 
-func loadTLSConfig(certPEM, keyPEM string) *tls.Config {
+func mpLoadTLSConfig(certPEM, keyPEM string) *tls.Config {
 	dataCert, err1 := ioutil.ReadFile(certPEM)
 	dataKey, err2 := ioutil.ReadFile(keyPEM)
 
@@ -314,7 +300,7 @@ func loadTLSConfig(certPEM, keyPEM string) *tls.Config {
 			skippedBlockTypes = append(skippedBlockTypes, keyDERBlock.Type)
 		}
 
-		cert.PrivateKey, err = parsePrivateKey(keyDERBlock.Bytes)
+		cert.PrivateKey, err = mpParsePrivateKey(keyDERBlock.Bytes)
 		if err != nil {
 			logger.Error("Error loading private key from file %s: %v", dataKey, err)
 			return nil
@@ -359,12 +345,12 @@ func loadTLSConfig(certPEM, keyPEM string) *tls.Config {
 
 	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
-		NextProtos:         []string{QUICGO_ALPN},
+		NextProtos:         []string{QUICGO_MP_ALPN},
 		InsecureSkipVerify: true,
 	}
 }
 
-func parsePrivateKey(der []byte) (crypto.PrivateKey, error) {
+func mpParsePrivateKey(der []byte) (crypto.PrivateKey, error) {
 	if key, err := x509.ParsePKCS1PrivateKey(der); err == nil {
 		return key, nil
 	}
@@ -381,61 +367,4 @@ func parsePrivateKey(der []byte) (crypto.PrivateKey, error) {
 	}
 
 	return nil, errors.New("tls: failed to parse private key")
-}
-
-// --- Tracer --- //
-type qpepQuicTracer struct {
-	logging.NullTracer
-}
-
-var tracer = &qpepQuicConnectionTracer{}
-
-func (t *qpepQuicTracer) TracerForConnection(ctx context.Context, p logging.Perspective, odcid logging.ConnectionID) logging.ConnectionTracer {
-	return tracer
-}
-func (t *qpepQuicTracer) SentPacket(addr net.Addr, hdr *logging.Header, count logging.ByteCount, frames []logging.Frame) {
-	logger.Info("[QGO] Sent packet to %s: %s %d", addr, hdr.PacketType(), count)
-}
-func (t *qpepQuicTracer) DroppedPacket(addr net.Addr, typePkt logging.PacketType, count logging.ByteCount, reason logging.PacketDropReason) {
-	logger.Info("[QGO] Dropped packet to %s: %d %d - %v", addr, typePkt, count, reason)
-}
-
-type qpepQuicConnectionTracer struct {
-	logging.NullConnectionTracer
-}
-
-func (n *qpepQuicConnectionTracer) SentLongHeaderPacket(hdr *logging.ExtendedHeader, count logging.ByteCount, _ *logging.AckFrame, frames []logging.Frame) {
-	logger.Info("[QGO] Sent packet (long) %v: %d", hdr, count)
-}
-func (n *qpepQuicConnectionTracer) SentShortHeaderPacket(hdr *logging.ShortHeader, count logging.ByteCount, _ *logging.AckFrame, frames []logging.Frame) {
-	logger.Info("[QGO] Sent packet (short) %v: %d", hdr, count)
-}
-func (n *qpepQuicConnectionTracer) ReceivedRetry(hdr *logging.Header) {
-	logger.Info("[QGO] Retry packet %v", hdr)
-}
-func (n *qpepQuicConnectionTracer) ReceivedLongHeaderPacket(hdr *logging.ExtendedHeader, count logging.ByteCount, frames []logging.Frame) {
-	logger.Info("[QGO] Recv packet (long) %v: %d", hdr, count)
-}
-func (n *qpepQuicConnectionTracer) ReceivedShortHeaderPacket(hdr *logging.ShortHeader, count logging.ByteCount, frames []logging.Frame) {
-	logger.Info("[QGO] Recv packet (short) %v: %d", hdr, count)
-}
-
-func (n *qpepQuicConnectionTracer) BufferedPacket(typePkt logging.PacketType, count logging.ByteCount) {
-	logger.Info("[QGO] Buffered packet %d: %d", typePkt, count)
-}
-func (n *qpepQuicConnectionTracer) AcknowledgedPacket(level logging.EncryptionLevel, number logging.PacketNumber) {
-	logger.Info("[QGO] Ack packet %d", number)
-}
-func (n *qpepQuicConnectionTracer) LostPacket(level logging.EncryptionLevel, number logging.PacketNumber, reason logging.PacketLossReason) {
-	logger.Info("[QGO] Lost packet %d - %v", number, reason)
-}
-func (n *qpepQuicConnectionTracer) UpdatedCongestionState(state logging.CongestionState) {
-	logger.Info("[QGO] congestion changed to state %v", state)
-}
-func (n *qpepQuicConnectionTracer) Close() {
-	logger.Info("[QGO] Close")
-}
-
-func (n *qpepQuicConnectionTracer) ClosedConnection(err error) {
-	logger.Info("[QGO] Close Connection: %v", err)
 }

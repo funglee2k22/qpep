@@ -28,6 +28,9 @@ on:
 
 run-name: Code Integration [${{ github.event_name }}][${{ github.head_ref || github.ref_name }}] rev.${{ github.sha }}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE20: true
+
 jobs:
   check-diff-files:
     runs-on: ubuntu-latest
