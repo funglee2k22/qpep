@@ -48,6 +48,7 @@ jobs:
         with:
           clean: true
           submodules: true
+          fetch-depth: 5
 
       - name: Check files difference
         id: check_file_changed
