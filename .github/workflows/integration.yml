@@ -52,12 +52,9 @@ jobs:
       - name: Check files difference
         id: check_file_changed
         run: |
-          set -x
           echo ">> Differing source files list ${SRC_PATTERN} <<"
-          SRC_DIFF=$(git diff --name-only | { grep -E "${SRC_PATTERN}" || true; } | wc -l)
-          git diff --name-only
-          echo "---------------------------------"
-          git diff --name-only | { grep -E "${SRC_PATTERN}" || true; }
+          SRC_DIFF=$(git diff HEAD^ HEAD --name-only | { grep -E "${SRC_PATTERN}" || true; } | wc -l)
+          git diff HEAD^ HEAD --name-only | { grep -E "${SRC_PATTERN}" || true; }
           echo "---------------------------------"
           if [[ "${SRC_DIFF}" -gt "0" ]]; then
             echo ">> Found differing source files, executing integration workflow"
