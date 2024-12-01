@@ -25,7 +25,7 @@ import (
 	"time"
 )
 
-// temp
+//
 
 const (
 	QUICGO_BACKEND     = "quic-go"
