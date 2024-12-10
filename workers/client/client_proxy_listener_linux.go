@@ -8,8 +8,9 @@ import (
 	"net"
 	"syscall"
 	"time"
-
+	"github.com/Project-Faster/qpep/shared/logger"
 	"golang.org/x/sys/unix"
+	"runtime/debug"
 )
 
 // NewClientProxyListener method instantiates a new ClientProxyListener on a tcp address base listener
@@ -28,7 +29,16 @@ func NewClientProxyListener(network string, laddr *net.TCPAddr) (net.Listener, e
 	defer fileDescriptorSource.Close()
 
 	//Make the port transparent so the gateway can see the real origin IP address (invisible proxy within satellite environment)
+	logger.Info("Setting socket into transparent mode ... ")
+        debug.PrintStack()
 	_ = syscall.SetsockoptInt(int(fileDescriptorSource.Fd()), syscall.SOL_IP, syscall.IP_TRANSPARENT, 1)
+	val, getErr := syscall.GetsockoptInt(int(fileDescriptorSource.Fd()), syscall.SOL_IP, syscall.IP_TRANSPARENT)
+	if getErr != nil {
+		logger.Info("getting socket transparent mode return with error ... ")
+	}
+
+	logger.Info("value of IP_TRANSPARENT option is: %d", int(val))
+
 	_ = syscall.SetsockoptInt(int(fileDescriptorSource.Fd()), syscall.SOL_TCP, unix.TCP_FASTOPEN, 1)
 
 	//return a derived TCP listener object with TCProxy support
