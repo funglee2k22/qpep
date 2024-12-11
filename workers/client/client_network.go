@@ -86,6 +86,9 @@ func handleTCPConn(tcpConn net.Conn) {
 	tcpLocalAddr := tcpConn.LocalAddr().(*net.TCPAddr)
 	diverted, srcPort, dstPort, srcAddress, dstAddress := gateway.GetConnectionDivertedState(tcpLocalAddr, tcpRemoteAddr)
 
+
+	logger.Info("TCP connection [%s:%d -> %s:%d], diverted: %d", tcpConn.LocalAddr().String(), sport, tcpConn.RemoteAddr().String(), dport, diverted)
+
 	var proxyRequest *http.Request
 	var errProxy error
 	if !diverted {
