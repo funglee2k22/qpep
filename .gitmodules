@@ -1,3 +1,0 @@
-[submodule "backend/quicly-git"]
-	path = backend/quicly-git
-	url = https://github.com/Project-Faster/quicly-go.git
