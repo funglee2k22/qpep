@@ -9,11 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/parvit/qpep/client"
-	"github.com/parvit/qpep/server"
-	"github.com/parvit/qpep/shared"
-
-	"github.com/parvit/qpep/windivert"
+	"github.com/funglee2k22/qpep/client"
+	"github.com/funglee2k22/qpep/server"
+	"github.com/funglee2k22/qpep/shared"
+	"github.com/funglee2k22/qpep/windivert"
 )
 
 func main() {
