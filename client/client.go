@@ -11,9 +11,10 @@ import (
 	"time"
 
 	//"github.com/lucas-clemente/quic-go"
-	"github.com/funglee2k22/quicly-go"	
-	"github.com/parvit/qpep/shared"
-	"github.com/parvit/qpep/windivert"
+	"github.com/Project-Faster/quic-go"
+	"github.com/funglee2k22/quicly-go"
+	"github.com/funglee2k22/qpep/shared"
+	"github.com/funglee2k22/qpep/windivert"
 	"golang.org/x/net/context"
 )
 

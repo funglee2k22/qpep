@@ -16,10 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/parvit/qpep/client"
-	"github.com/parvit/qpep/shared"
-
-	"github.com/lucas-clemente/quic-go"
+	"github.com/funglee2k22/qpep/client"
+	"github.com/funglee2k22/qpep/shared"
+	"github.com/Project-Faster/quic-go" 
+	//"github.com/lucas-clemente/quic-go" 
+	//quic "github.com/funglee2k22/quicly-go.git"
 )
 
 var (
